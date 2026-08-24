@@ -1,0 +1,41 @@
+# Dependencies and generated output
+node_modules/
+coverage/
+.nyc_output/
+dist/
+build/
+artifacts/
+test-results/
+playwright-report/
+
+# Test and capture artifacts
+tests/.tmp/
+tests/browser-fixture/.port
+screenshots/
+tests/screenshots/
+*.screenshot.png
+*.screenshot.jpg
+*.screenshot.jpeg
+
+# Local OpenCode state
+.opencode/
+opencode.jsonc
+opencode.jsonc.bak-*
+*.local.jsonc
+
+# Environment, registry, credentials, keys, and certificates
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p8
+*.p12
+*.crt
+*.cer
+*.mobileprovision
+
+# Logs and macOS metadata
+*.log
+.DS_Store

@@ -1,0 +1,53 @@
+{
+  "name": "opencode-controlmac",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local macOS and Chrome control for OpenCode",
+  "license": "MIT",
+  "homepage": "https://github.com/zilbonn/opencode_controlmac#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zilbonn/opencode_controlmac.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zilbonn/opencode_controlmac/issues"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "type": "module",
+  "scripts": {
+    "install:opencode": "node scripts/install.mjs",
+    "install:opencode:dry-run": "node scripts/install.mjs --dry-run",
+    "doctor": "node scripts/doctor.mjs",
+    "chrome:check": "node scripts/chrome-beta-mcp.mjs --check",
+    "chrome:ensure": "node scripts/chrome-beta-mcp.mjs --ensure-browser",
+    "test": "npm run test:contracts && npm run test:launcher && npm run test:doctor",
+    "test:contracts": "node --test tests/contracts.test.mjs",
+    "test:launcher": "node --test tests/launcher.test.mjs",
+    "test:doctor": "node --test tests/doctor.test.mjs",
+    "test:native": "node --test tests/native-smoke.mjs",
+    "test:recovery-native": "node --test tests/native-recovery.test.mjs",
+    "fixture:browser": "node tests/browser-fixture/server.mjs",
+    "test:browser": "node --test tests/browser-smoke.mjs",
+    "test:recovery-browser": "node --test tests/browser-recovery.test.mjs",
+    "test:workflow": "node --test tests/workflow-smoke.mjs",
+    "test:all": "npm test && npm run test:native && npm run test:recovery-native && npm run test:browser && npm run test:recovery-browser && npm run test:workflow"
+  },
+  "dependencies": {
+    "@steipete/peekaboo": "4.2.2",
+    "chrome-devtools-mcp": "1.7.0",
+    "semver": "7.8.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@opencode-ai/plugin": "1.18.21",
+    "jsonc-parser": "3.3.1"
+  },
+  "engines": {
+    "node": "^24.15.0 || >=26.0.0"
+  }
+}

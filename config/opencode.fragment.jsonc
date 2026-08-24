@@ -1,0 +1,59 @@
+{
+  // Reference only. Replace placeholders manually or use scripts/install.mjs.
+  "mcp": {
+    "controlmac-native": {
+      "type": "local",
+      "command": [
+        "<repo-root>/node_modules/.bin/peekaboo",
+        "mcp",
+        "--no-remote"
+      ],
+      "environment": {
+        "PEEKABOO_LOG_LEVEL": "info"
+      },
+      "enabled": true,
+      "timeout": 30000
+    },
+    "controlmac-capture": {
+      "type": "local",
+      "command": [
+        "<repo-root>/node_modules/.bin/peekaboo",
+        "mcp",
+        "--bridge-socket",
+        "<home>/Library/Application Support/Peekaboo/bridge.sock"
+      ],
+      "environment": {
+        "PEEKABOO_LOG_LEVEL": "info"
+      },
+      "enabled": true,
+      "timeout": 30000
+    },
+    "controlmac-browser": {
+      "type": "local",
+      "command": [
+        "<node-path>",
+        "<repo-root>/scripts/chrome-beta-mcp.mjs"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    },
+    "controlmac-stable-browser": {
+      "type": "local",
+      "command": [
+        "<node-path>",
+        "<repo-root>/node_modules/.bin/chrome-devtools-mcp",
+        "--auto-connect",
+        "--channel=stable",
+        "--experimental-vision",
+        "--no-category-performance",
+        "--no-category-network",
+        "--no-category-emulation",
+        "--allow-unrestricted-paths",
+        "--no-usage-statistics",
+        "--log-file=<home>/Library/Logs/OpenCodeControl/chrome-devtools-stable.log"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

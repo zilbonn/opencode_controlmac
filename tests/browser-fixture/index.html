@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ControlMac Browser Fixture</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <p class="eyebrow">Local test page</p>
+      <h1>ControlMac Browser Fixture</h1>
+      <p id="viewport-status" role="status" aria-live="polite"></p>
+    </header>
+
+    <main>
+      <section aria-labelledby="form-heading">
+        <h2 id="form-heading">Form controls</h2>
+        <form id="message-form">
+          <label for="message-input">Message</label>
+          <input
+            id="message-input"
+            name="message"
+            type="text"
+            autocomplete="off"
+            placeholder="Enter a test message"
+          />
+          <button id="submit-message" type="submit">Submit message</button>
+        </form>
+        <p id="message-result" role="status" aria-live="polite">No message submitted</p>
+      </section>
+
+      <section aria-labelledby="async-heading">
+        <h2 id="async-heading">Loading state</h2>
+        <button id="start-delay" type="button">Load delayed content</button>
+        <p id="loading-status" role="status" aria-live="polite">Idle</p>
+        <div id="delayed-content" hidden>Delayed content ready</div>
+      </section>
+
+      <section aria-labelledby="dialog-heading">
+        <h2 id="dialog-heading">Dialogs</h2>
+        <div class="button-row">
+          <button id="open-html-dialog" type="button">Open HTML dialog</button>
+          <button id="open-native-dialog" type="button">Open browser dialog</button>
+        </div>
+        <p id="dialog-result" role="status" aria-live="polite">No dialog result</p>
+        <dialog id="html-dialog" aria-labelledby="html-dialog-title">
+          <h3 id="html-dialog-title">Fixture dialog</h3>
+          <p>This dialog is rendered by the page.</p>
+          <button id="close-html-dialog" type="button">Close dialog</button>
+        </dialog>
+      </section>
+
+      <section aria-labelledby="drag-heading">
+        <h2 id="drag-heading">Drag and drop</h2>
+        <div class="drag-layout">
+          <div id="drag-source" draggable="true" tabindex="0">Drag source</div>
+          <div id="drop-target" tabindex="0" aria-label="Drop target">Drop here</div>
+        </div>
+        <p id="drag-result" role="status" aria-live="polite">Nothing dropped</p>
+      </section>
+
+      <section aria-labelledby="upload-heading">
+        <h2 id="upload-heading">File upload</h2>
+        <label for="file-input">Choose a fixture file</label>
+        <input id="file-input" type="file" />
+        <p id="file-result" role="status" aria-live="polite">No file selected</p>
+        <pre id="file-preview" aria-label="Uploaded file preview"></pre>
+      </section>
+
+      <section aria-labelledby="canvas-heading">
+        <h2 id="canvas-heading">Visual fallback</h2>
+        <p>Click the blue circle inside the canvas.</p>
+        <canvas id="visual-canvas" width="320" height="140"></canvas>
+        <p id="canvas-result" role="status" aria-live="polite">Canvas untouched</p>
+      </section>
+
+      <section aria-labelledby="reset-heading">
+        <h2 id="reset-heading">Reset</h2>
+        <button id="reset-fixture" type="button">Reset fixture state</button>
+      </section>
+    </main>
+
+    <script src="/fixture.js"></script>
+  </body>
+</html>
