@@ -32,15 +32,6 @@
       "type": "local",
       "command": [
         "<node-path>",
-        "<repo-root>/scripts/chrome-beta-mcp.mjs"
-      ],
-      "enabled": true,
-      "timeout": 30000
-    },
-    "controlmac-stable-browser": {
-      "type": "local",
-      "command": [
-        "<node-path>",
         "<repo-root>/node_modules/.bin/chrome-devtools-mcp",
         "--auto-connect",
         "--channel=stable",
@@ -50,7 +41,7 @@
         "--no-category-emulation",
         "--allow-unrestricted-paths",
         "--no-usage-statistics",
-        "--log-file=<home>/Library/Logs/OpenCodeControl/chrome-devtools-stable.log"
+        "--log-file=<home>/Library/Logs/OpenCodeControl/chrome-devtools.log"
       ],
       "enabled": true,
       "timeout": 30000

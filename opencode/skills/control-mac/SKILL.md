@@ -9,9 +9,8 @@ Use the local ControlMac tools to complete visible UI work. Treat tool dispatch 
 
 ## Route by surface
 
-- Use `controlmac-browser` (Chrome DevTools) for content inside the dedicated Chrome Beta profile: tabs, navigation, DOM/accessibility snapshots, fields, page buttons, JavaScript dialogs, page drag-and-drop, uploads, screenshots, and page waits.
-- Use `controlmac-stable-browser` (Chrome DevTools) for page content in Chrome's existing stable default profile. It uses `--auto-connect --channel=stable` and exposes the same page tools as the Beta surface. When several stable profiles are active, Chrome chooses its default profile; start with `list_pages` and act only when it returns the intended pages. If it selects the wrong profile, use the dedicated Beta route for predictable profile selection.
-- If stable auto-connect is unavailable, open `chrome://inspect/#remote-debugging` in that Chrome profile, ask the user to enable remote debugging, restart OpenCode so the MCP reconnects, and let the user accept Chrome's prompt. Verify with `list_pages`. This is Chrome's built-in local debugging flow and uses no extension.
+- Use `controlmac-browser` (Chrome DevTools) for page content in the normal Google Chrome stable session: tabs, navigation, DOM/accessibility snapshots, fields, page buttons, JavaScript dialogs, page drag-and-drop, uploads, screenshots, and page waits. It connects with `--auto-connect --channel=stable` and requires Chrome stable 144 or newer.
+- Before every browser workflow, call `list_pages`, select the intended page, and act only when it returns the expected pages. If auto-connect is unavailable, open `chrome://inspect/#remote-debugging` in normal Chrome, ask the user to enable remote debugging, restart OpenCode, call `list_pages` to trigger Chrome's prompt, let the user accept it, then retry `list_pages`. This is Chrome's built-in local debugging flow and uses no extension.
 - Use `controlmac-native` (Peekaboo MCP) for native Accessibility inspection and background-safe semantic actions in apps and browser chrome. It is forced to the stable local runtime with `--no-remote`. Its execution policy is background-only; an `AGENT_EXECUTION_POLICY_REFUSAL` means the requested action requires one of the narrow foreground wrappers below.
 - Use `controlmac-capture` only for `see`, `image`, screenshots, annotations, and OCR. It is pinned to the permission-aware Peekaboo app bridge. Do not send mutating tools through this server: Peekaboo 4.2.2 can lose mutation receipts on the GUI bridge.
 - For `controlmac-capture image`, use `format: "data"` when OpenCode needs the image inline. For `format: "png"` or `"jpg"`, always provide an absolute `path` and verify that file; never request a file format without a path.
@@ -48,7 +47,7 @@ For native UI:
 
 For browser-page content:
 
-1. Select the correct browser surface: `controlmac-browser` for the dedicated Beta profile or `controlmac-stable-browser` for a connected existing stable profile.
+1. Call `list_pages` on `controlmac-browser` and select the intended page.
 2. Fresh DOM/accessibility UID from that browser surface's `take_snapshot`.
 3. A semantic browser action bound to the exact page ID.
 4. A fresh browser screenshot and one coordinate action.
@@ -87,7 +86,7 @@ When there is no observable postcondition, report `dispatched_unverified`; do no
 - A wrapper may return `partial_dispatch: true` with Peekaboo `error`/`outcome` data after a nonzero CLI exit. If `mutation_dispatched` is true, treat the action as attempted, require fresh observation, and do not retry when `retry_safe` is false.
 - If Peekaboo reports an incomplete application inventory, do not retry a name selector. Re-list the exact process/window, then use numeric PID plus window ID. `controlmac_window_focus` accepts only those exact selectors.
 - Peekaboo 4.2.2 can fail exact Chrome window capture with `Bridge operation target attribution failed` or `Image processing produced no final image bytes`. Do not repeat the same capture. Use the connected browser MCP screenshot; if there is no browser connection, use `controlmac-capture image` for `screen:N` or all screens without an app/window target as visual evidence.
-- If a Chromium native mutation reports missing or invalid canonical result semantics, inspect once to learn whether it dispatched. Do not try the same field through click, type, set-value, and paste in sequence. Switch to the browser MCP matching the current browser identity: `controlmac-browser` for the dedicated Beta profile or `controlmac-stable-browser` for stable. If that surface cannot list the intended pages, stop at its connection setup instead of generating more failed calls.
+- If a Chromium native mutation reports missing or invalid canonical result semantics, inspect once to learn whether it dispatched. Do not try the same field through click, type, set-value, and paste in sequence. Switch to `controlmac-browser`. If it cannot list the intended pages, stop at its connection setup instead of generating more failed calls.
 - Peekaboo 4.2.2 cannot complete `dialog file` against an attached TextEdit Save As sheet because its generic exact-window focus preflight cannot represent that sheet. If a fresh inspection shows the same sheet after a `response_lost`/focus timeout, do not replay or add `--no-auto-focus`. For a same-directory rename, use exact background `dialog input` on the parent window, reinspect the filename, then exact background `dialog click` and verify the file. Changing that sheet to an arbitrary directory remains a blocker in v1.
 - On a stale target, reobserve and resolve it again; never retry the stale ID or coordinate.
 - On failure, return the current app/window/page identity, fresh screenshot or snapshot, observed state, attempted routes, last verified checkpoint, and the next concrete recovery step.

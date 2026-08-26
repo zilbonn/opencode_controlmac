@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { getLauncherConfig, inspectLauncherState } from "../scripts/chrome-beta-mcp.mjs";
 import { startFixtureServer } from "./browser-fixture/server.mjs";
 import {
   assertToolSucceeded,
-  chromeLauncherPath,
+  chromeMcpArgs,
+  chromeMcpPath,
   connectMcp,
   firstJsonObject,
   gateReason,
@@ -24,16 +24,10 @@ test(
   { skip: gateReason("CONTROLMAC_RUN_BROWSER_SMOKE"), timeout: 90_000 },
   async (t) => {
     if (process.platform !== "darwin") {
-      t.skip("the configured Chrome Beta launcher is macOS-specific");
+      t.skip("the configured normal Chrome connection is macOS-specific");
       return;
     }
-    if (!(await requireFile(t, chromeLauncherPath, "Chrome Beta MCP launcher"))) return;
-
-    const launcherState = await inspectLauncherState(getLauncherConfig());
-    if (launcherState.blocker) {
-      t.skip(`Chrome Beta prerequisite blocked: ${launcherState.blocker}`);
-      return;
-    }
+    if (!(await requireFile(t, chromeMcpPath, "Chrome DevTools MCP"))) return;
 
     const fixture = await startFixtureServer();
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "controlmac-browser-smoke-"));
@@ -45,7 +39,11 @@ test(
       await rm(temporaryRoot, { recursive: true, force: true });
     });
 
-    const mcp = await connectMcp({ command: process.execPath, args: [chromeLauncherPath], timeoutMs: 30_000 });
+    const mcp = await connectMcp({
+      command: process.execPath,
+      args: [chromeMcpPath, ...chromeMcpArgs],
+      timeoutMs: 30_000,
+    });
     let pageId;
     t.after(async () => {
       if (pageId !== undefined) {
@@ -56,6 +54,7 @@ test(
 
     const { tools } = await mcp.client.listTools();
     for (const name of [
+      "list_pages",
       "new_page",
       "close_page",
       "take_snapshot",
@@ -71,6 +70,11 @@ test(
     ]) {
       toolByName(tools, name);
     }
+
+    assertToolSucceeded(
+      await mcp.client.callTool({ name: "list_pages", arguments: {} }),
+      "verify the normal Chrome connection before browser work",
+    );
 
     const opened = assertToolSucceeded(
       await mcp.client.callTool({

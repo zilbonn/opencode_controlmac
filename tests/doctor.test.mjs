@@ -1,12 +1,101 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
+  classifyChromeReadiness,
   classifyNodeVersion,
   classifyOpenCodeVersion,
+  inspectChromeRemoteDebugging,
   renderHumanReport,
   sanitizeLogLine,
 } from "../scripts/doctor.mjs";
+
+test("Chrome probe distinguishes disabled debugging from a reachable stable endpoint", async (t) => {
+  const temporaryHome = await mkdtemp(path.join(os.tmpdir(), "controlmac-doctor-chrome-"));
+  t.after(() => rm(temporaryHome, { recursive: true, force: true }));
+  const paths = { homeDirectory: temporaryHome, chromeMcpPath: process.execPath };
+  const options = { chromeAppPath: process.execPath };
+
+  assert.deepEqual(await inspectChromeRemoteDebugging(paths, options), {
+    mcpAvailable: true,
+    ready: false,
+    detail: "normal Google Chrome is not running with remote debugging enabled",
+  });
+
+  const activePortDirectory = path.join(
+    temporaryHome,
+    "Library/Application Support/Google/Chrome",
+  );
+  await mkdir(activePortDirectory, { recursive: true });
+  await writeFile(
+    path.join(activePortDirectory, "DevToolsActivePort"),
+    "49152\n/devtools/browser/controlmac-test\n",
+  );
+  let requestedUrl;
+  const ready = await inspectChromeRemoteDebugging(paths, {
+    ...options,
+    fetchImpl: async (url) => {
+      requestedUrl = url;
+      return {
+        ok: true,
+        async json() {
+          return {
+            Browser: "Chrome/151.0.0.0",
+            webSocketDebuggerUrl:
+              "ws://127.0.0.1:49152/devtools/browser/controlmac-test",
+          };
+        },
+      };
+    },
+  });
+  assert.equal(requestedUrl, "http://127.0.0.1:49152/json/version");
+  assert.deepEqual(ready, {
+    mcpAvailable: true,
+    ready: true,
+    port: 49152,
+    browser: "Chrome/151.0.0.0",
+  });
+});
+
+test("Chrome readiness gives an actionable warning while normal Chrome is offline", () => {
+  const result = classifyChromeReadiness({
+    mcpAvailable: true,
+    ready: false,
+    detail: "normal Google Chrome is not running with remote debugging enabled",
+  });
+
+  assert.equal(result.status, "warn");
+  assert.match(result.detail, /chrome:\/\/inspect\/#remote-debugging/);
+  assert.match(result.detail, /enable remote debugging/);
+  assert.match(result.detail, /restart OpenCode/);
+  assert.match(result.detail, /list_pages/);
+});
+
+test("Chrome readiness reports a reachable normal Chrome session", () => {
+  assert.deepEqual(
+    classifyChromeReadiness({
+      mcpAvailable: true,
+      ready: true,
+      port: 49152,
+      browser: "Chrome/144.0.0.0",
+    }),
+    {
+      status: "ok",
+      detail:
+        "Chrome/144.0.0.0 remote debugging is reachable at 127.0.0.1:49152; run list_pages and select the intended page",
+    },
+  );
+});
+
+test("Chrome readiness treats a missing MCP binary as an installation error", () => {
+  assert.deepEqual(classifyChromeReadiness({ mcpAvailable: false, ready: false }), {
+    status: "error",
+    detail: "Chrome DevTools MCP executable is missing",
+  });
+});
 
 test("Node support follows the declared release range", () => {
   assert.equal(classifyNodeVersion("v24.14.1").status, "error");

@@ -127,15 +127,10 @@ export function getInstallPaths(options = {}, env = process.env) {
       "Library/Application Support/Peekaboo/bridge.sock",
     ),
     chromeMcpPath: path.join(REPO_ROOT, "node_modules/.bin/chrome-devtools-mcp"),
-    stableChromeMcpLogPath: path.join(
+    chromeMcpLogPath: path.join(
       homeDirectory,
-      "Library/Logs/OpenCodeControl/chrome-devtools-stable.log",
+      "Library/Logs/OpenCodeControl/chrome-devtools.log",
     ),
-    stableChromeDevToolsActivePortPath: path.join(
-      homeDirectory,
-      "Library/Application Support/Google/Chrome/DevToolsActivePort",
-    ),
-    launcherPath: path.join(REPO_ROOT, "scripts/chrome-beta-mcp.mjs"),
   };
 }
 
@@ -161,12 +156,6 @@ export function desiredMcpEntries(paths, nodePath = process.execPath) {
     },
     "controlmac-browser": {
       type: "local",
-      command: [nodePath, paths.launcherPath],
-      enabled: true,
-      timeout: 30_000,
-    },
-    "controlmac-stable-browser": {
-      type: "local",
       command: [
         nodePath,
         paths.chromeMcpPath,
@@ -178,7 +167,7 @@ export function desiredMcpEntries(paths, nodePath = process.execPath) {
         "--no-category-emulation",
         "--allow-unrestricted-paths",
         "--no-usage-statistics",
-        `--log-file=${paths.stableChromeMcpLogPath}`,
+        `--log-file=${paths.chromeMcpLogPath}`,
       ],
       enabled: true,
       timeout: 30_000,
@@ -234,6 +223,13 @@ export function updateConfigText(currentText, entries, sourceName = "opencode.js
     const edits = modify(updated, ["mcp", name], value, options);
     updated = applyEdits(updated, edits);
   }
+  const legacyEdits = modify(
+    updated,
+    ["mcp", "controlmac-stable-browser"],
+    undefined,
+    options,
+  );
+  updated = applyEdits(updated, legacyEdits);
   if (!updated.endsWith(options.formattingOptions.eol)) {
     updated += options.formattingOptions.eol;
   }
@@ -363,7 +359,6 @@ function publicPlan(plan, dryRun, backupPath = null) {
       "controlmac-native",
       "controlmac-capture",
       "controlmac-browser",
-      "controlmac-stable-browser",
     ],
   };
 }
@@ -379,7 +374,7 @@ function printHuman(result) {
     process.stdout.write(`- ${prefix} ${link.action} ${link.target} -> ${link.source}\n`);
   }
   process.stdout.write(
-    "- MCP entries: controlmac-native, controlmac-capture, controlmac-browser, controlmac-stable-browser\n",
+    "- MCP entries: controlmac-native, controlmac-capture, controlmac-browser\n",
   );
 }
 
@@ -387,7 +382,7 @@ export async function install(options = {}, env = process.env) {
   const plan = await buildInstallPlan(options, env);
   if (options.dryRun) return publicPlan(plan, true);
 
-  await mkdir(path.dirname(plan.paths.stableChromeMcpLogPath), { recursive: true });
+  await mkdir(path.dirname(plan.paths.chromeMcpLogPath), { recursive: true });
   for (const link of plan.links) await installLink(link);
 
   let backupPath = null;

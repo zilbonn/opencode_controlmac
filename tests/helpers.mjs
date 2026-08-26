@@ -13,7 +13,23 @@ export const peekabooBridgeSocket =
   path.join(os.homedir(), "Library/Application Support/Peekaboo/bridge.sock");
 export const peekabooMcpArgs = ["mcp", "--no-remote"];
 export const peekabooCaptureMcpArgs = ["mcp", "--bridge-socket", peekabooBridgeSocket];
-export const chromeLauncherPath = path.join(repoRoot, "scripts", "chrome-beta-mcp.mjs");
+export const chromeMcpPath = path.join(
+  repoRoot,
+  "node_modules",
+  ".bin",
+  "chrome-devtools-mcp",
+);
+export const chromeMcpArgs = [
+  "--auto-connect",
+  "--channel=stable",
+  "--experimental-vision",
+  "--no-category-performance",
+  "--no-category-network",
+  "--no-category-emulation",
+  "--allow-unrestricted-paths",
+  "--no-usage-statistics",
+  `--log-file=${path.join(os.homedir(), "Library/Logs/OpenCodeControl/chrome-devtools.log")}`,
+];
 
 export function enabled(name) {
   return process.env[name] === "1";

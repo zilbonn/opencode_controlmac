@@ -9,10 +9,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { parse } from "jsonc-parser";
 import semver from "semver";
-import {
-  getLauncherConfig,
-  inspectLauncherState,
-} from "./chrome-beta-mcp.mjs";
 import { desiredMcpEntries, getInstallPaths } from "./install.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +23,10 @@ if (typeof SUPPORTED_NODE_RANGE !== "string" || !semver.validRange(SUPPORTED_NOD
 const PINNED_OPENCODE_VERSION = "1.18.21";
 const PINNED_PEEKABOO_VERSION = "4.2.2";
 const PEEKABOO_APP_PLIST = "/Applications/Peekaboo.app/Contents/Info.plist";
+const CHROME_APP_PATH =
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME_REMOTE_DEBUGGING_HELP =
+  "Open normal Google Chrome, go to chrome://inspect/#remote-debugging, enable remote debugging, restart OpenCode, run list_pages, accept Chrome's prompt, then run list_pages again";
 const LOG_SHARING_WARNING =
   "WARNING: Log excerpts are local debugging data. Review and redact them again before sharing.";
 
@@ -244,30 +244,63 @@ async function inspectPermissions(peekabooPath, runtimeArguments) {
   }
 }
 
-async function inspectStableChromeRemoteDebugging(paths) {
-  if (!(await exists(paths.chromeMcpPath, fsConstants.X_OK))) {
+export function classifyChromeReadiness(state) {
+  if (!state.mcpAvailable) {
     return {
-      ok: false,
-      ready: false,
-      error: "Chrome DevTools MCP executable is missing",
+      status: "error",
+      detail: "Chrome DevTools MCP executable is missing",
     };
   }
-  if (!(await exists(paths.stableChromeDevToolsActivePortPath))) {
+  if (state.ready) {
     return {
-      ok: true,
-      ready: false,
-      detail: "Chrome stable is not running with remote debugging enabled",
+      status: "ok",
+      detail: `${state.browser ?? "Google Chrome"} remote debugging is reachable at 127.0.0.1:${state.port}; run list_pages and select the intended page`,
     };
   }
+  return {
+    status: "warn",
+    detail: `${state.detail ?? "normal Google Chrome remote debugging is unavailable"}; ${CHROME_REMOTE_DEBUGGING_HELP}`,
+  };
+}
+
+export async function inspectChromeRemoteDebugging(paths, options = {}) {
+  const chromeAppPath = options.chromeAppPath ?? CHROME_APP_PATH;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const mcpAvailable = await exists(paths.chromeMcpPath, fsConstants.X_OK);
+  if (!mcpAvailable) return { mcpAvailable, ready: false };
+
+  if (!(await exists(chromeAppPath, fsConstants.X_OK))) {
+    return {
+      mcpAvailable,
+      ready: false,
+      detail: "Google Chrome stable is not installed in /Applications",
+    };
+  }
+
+  const activePortPath = path.join(
+    paths.homeDirectory,
+    "Library/Application Support/Google/Chrome/DevToolsActivePort",
+  );
+  if (!(await exists(activePortPath))) {
+    return {
+      mcpAvailable,
+      ready: false,
+      detail: "normal Google Chrome is not running with remote debugging enabled",
+    };
+  }
+
   try {
-    const [portLine] = (await readFile(paths.stableChromeDevToolsActivePortPath, "utf8"))
+    const [portLine, websocketPath] = (await readFile(activePortPath, "utf8"))
       .trim()
       .split(/\r?\n/);
     const port = Number(portLine);
     if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
       throw new Error("DevToolsActivePort contains an invalid port");
     }
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+    if (!/^\/devtools\/browser\/[^/\s]+$/.test(websocketPath ?? "")) {
+      throw new Error("DevToolsActivePort contains an invalid browser path");
+    }
+    const response = await fetchImpl(`http://127.0.0.1:${port}/json/version`, {
       signal: AbortSignal.timeout(1_500),
       headers: { accept: "application/json" },
     });
@@ -277,16 +310,16 @@ async function inspectStableChromeRemoteDebugging(paths) {
       throw new Error("DevTools endpoint returned no browser WebSocket URL");
     }
     return {
-      ok: true,
+      mcpAvailable,
       ready: true,
       port,
-      browser: version.Browser ?? "Chrome stable",
+      browser: version.Browser ?? "Google Chrome",
     };
   } catch (error) {
     return {
-      ok: true,
+      mcpAvailable,
       ready: false,
-      detail: `remote debugging endpoint is unavailable: ${error.message}`,
+      detail: `normal Google Chrome remote debugging is unreachable: ${error.message}`,
     };
   }
 }
@@ -331,14 +364,12 @@ async function inspectOpenCodeConfig(configPath, expectedEntries) {
         "controlmac-native": inspectEntry("controlmac-native"),
         "controlmac-capture": inspectEntry("controlmac-capture"),
         "controlmac-browser": inspectEntry("controlmac-browser"),
-        "controlmac-stable-browser": inspectEntry("controlmac-stable-browser"),
       },
       otherMcpNames: Object.keys(mcp).filter(
         (name) =>
           name !== "controlmac-native" &&
           name !== "controlmac-capture" &&
-          name !== "controlmac-browser" &&
-          name !== "controlmac-stable-browser",
+          name !== "controlmac-browser",
       ),
     };
   } catch (error) {
@@ -467,7 +498,6 @@ function printHuman(report, includeLogs) {
 export async function diagnose(options = {}, env = process.env) {
   const installPaths = getInstallPaths({}, env);
   const expectedMcpEntries = desiredMcpEntries(installPaths, process.execPath);
-  const launcherConfig = getLauncherConfig(env);
   const opencodePath = await resolveExecutable("opencode", env);
   const opencodeVersionPromise = opencodePath
     ? run(opencodePath, ["--version"], 5_000)
@@ -485,8 +515,7 @@ export async function diagnose(options = {}, env = process.env) {
     config,
     skillLink,
     toolLink,
-    chrome,
-    stableBrowser,
+    browser,
     opencodeVersionResult,
   ] = await Promise.all([
     packageVersion("@steipete/peekaboo"),
@@ -503,8 +532,7 @@ export async function diagnose(options = {}, env = process.env) {
     inspectOpenCodeConfig(installPaths.configPath, expectedMcpEntries),
     inspectSymlink(installPaths.skillTarget, installPaths.skillSource),
     inspectSymlink(installPaths.toolTarget, installPaths.toolSource),
-    inspectLauncherState(launcherConfig),
-    inspectStableChromeRemoteDebugging(installPaths),
+    inspectChromeRemoteDebugging(installPaths),
     opencodeVersionPromise,
   ]);
 
@@ -618,7 +646,6 @@ export async function diagnose(options = {}, env = process.env) {
     "controlmac-native",
     "controlmac-capture",
     "controlmac-browser",
-    "controlmac-stable-browser",
   ]) {
     const entry = config.mcp[name];
     addCheck(
@@ -647,50 +674,12 @@ export async function diagnose(options = {}, env = process.env) {
     toolLink.ok ? toolLink.target : toolLink.error ?? `points to ${toolLink.source}`,
   );
 
-  const chromeConnectionMode =
-    chrome.connectionMode ?? launcherConfig.connectionMode ?? "dedicated-profile";
-  const chromeProfileOwnership = chrome.profileOwnership ?? "unknown";
-  const chromeCdpUrl = chrome.cdpUrl ?? launcherConfig.cdpUrl ?? null;
-  const chromeContext = [
-    `mode=${chromeConnectionMode}`,
-    `profile=${chromeProfileOwnership}`,
-    `endpoint=${chromeCdpUrl ?? "unresolved"}`,
-  ].join(", ");
-
-  if (!chrome.mcpExists) {
-    addCheck(checks, "error", "Chrome CDP", "Chrome DevTools MCP executable is missing");
-  } else if (chrome.cdpReady) {
-    addCheck(checks, "ok", "Chrome CDP", `${chrome.cdpBrowser}; ${chromeContext}`);
-  } else if (chrome.launchable) {
-    addCheck(
-      checks,
-      "warn",
-      "Chrome CDP",
-      `offline; launcher preflight passed (${chromeContext})`,
-    );
-  } else {
-    addCheck(
-      checks,
-      "error",
-      "Chrome CDP",
-      `${chrome.blocker ?? "unavailable"}: ${chrome.cdpError ?? "endpoint unavailable"} (${chromeContext})`,
-    );
-  }
-
-  addCheck(
-    checks,
-    stableBrowser.ready ? "ok" : "warn",
-    "Chrome stable remote debugging",
-    stableBrowser.ready
-      ? `${stableBrowser.browser} endpoint is reachable for auto-connect at 127.0.0.1:${stableBrowser.port}; run list_pages to verify the intended profile`
-      : stableBrowser.ok
-        ? `${stableBrowser.detail}; enable chrome://inspect/#remote-debugging, restart OpenCode, then verify with list_pages`
-        : stableBrowser.error,
-  );
+  const browserCheck = classifyChromeReadiness(browser);
+  addCheck(checks, browserCheck.status, "Chrome browser control", browserCheck.detail);
 
   const logs = (
     await Promise.all(
-      (await logCandidates(installPaths.homeDirectory, launcherConfig.logPath)).map(
+      (await logCandidates(installPaths.homeDirectory, installPaths.chromeMcpLogPath)).map(
         (candidate) => collectLogFile(candidate, options.logs === true),
       ),
     )
@@ -712,13 +701,7 @@ export async function diagnose(options = {}, env = process.env) {
       native: nativePermissions,
       capture: capturePermissions,
     },
-    chrome: {
-      ...chrome,
-      cdpUrl: chromeCdpUrl,
-      chromePath: launcherConfig.chromePath,
-      profilePath: launcherConfig.profilePath,
-    },
-    stableBrowser,
+    browser,
     logs,
     logSharingWarning: options.logs === true ? LOG_SHARING_WARNING : null,
   };

@@ -6,21 +6,19 @@ Local macOS and Chrome control for [OpenCode](https://opencode.ai/), without a b
 OpenCode + control-mac skill
 ├── controlmac-native MCP         → Peekaboo local runtime → Accessibility / semantic input
 ├── controlmac-capture MCP        → Peekaboo app bridge → screenshots / OCR / annotated UI
-├── controlmac-browser MCP        → Chrome DevTools MCP → dedicated Chrome Beta profile
-├── controlmac-stable-browser MCP → Chrome DevTools MCP → opted-in Chrome stable profile
+├── controlmac-browser MCP        → Chrome DevTools MCP → normal Chrome stable session
 └── controlmac_* tools            → narrow Peekaboo CLI foreground actions
 ```
 
-ControlMac adds a global OpenCode skill, an idempotent installer, diagnostics, a profile-safe Chrome Beta launcher, and four foreground wrappers. The skill applies an observe → target → act → verify → recover loop while Peekaboo and Chrome DevTools MCP perform the automation.
+ControlMac adds a global OpenCode skill, an idempotent installer, diagnostics, and four foreground wrappers. The skill applies an observe → target → act → verify → recover loop while Peekaboo and Chrome DevTools MCP perform the automation.
 
 ## Requirements
 
 - macOS 15 or newer on Apple Silicon.
 - [Node.js](https://nodejs.org/en/download) `^24.15.0` or `>=26.0.0`.
 - [OpenCode](https://opencode.ai/docs/) 1.18.21 or a later 1.x release. Version 1.18.21 is the tested baseline.
-- [Google Chrome Beta](https://www.google.com/chrome/beta/) installed in `/Applications`.
+- [Google Chrome](https://www.google.com/chrome/) stable 144 or newer, installed in `/Applications`.
 - [Peekaboo 4.2.2](https://github.com/openclaw/Peekaboo/releases/tag/v4.2.2) installed in `/Applications`.
-- Google Chrome 144 or newer only for the optional existing-stable-profile connection.
 
 ## Quick Start
 
@@ -37,7 +35,7 @@ npm run install:opencode
 The installer:
 
 - preserves comments, credentials, and unrelated settings in `~/.config/opencode/opencode.jsonc`;
-- adds only `controlmac-native`, `controlmac-capture`, `controlmac-browser`, and `controlmac-stable-browser`;
+- adds only `controlmac-native`, `controlmac-capture`, and `controlmac-browser`;
 - backs up an existing config before changing it;
 - symlinks the skill and foreground tools into the global OpenCode directories;
 - is idempotent and refuses to replace a real file or directory at either symlink destination.
@@ -67,57 +65,22 @@ The signed Peekaboo app owns Screen Recording permission. The standalone CLI can
 
 Peekaboo 4.2.2 uses split native routing here: semantic actions use its local runtime (`--no-remote`), while capture and OCR use the permission-aware app bridge. Snapshot and element IDs are scoped to their originating MCP and must not cross between them. The custom wrappers retain Peekaboo's on-demand route only for foreground operations its MCP intentionally refuses.
 
-## Dedicated Chrome Beta
+## Normal Chrome setup
 
-`controlmac-browser` owns a persistent profile at:
+`controlmac-browser` connects directly to the normal Google Chrome stable session with Chrome DevTools MCP's `--auto-connect --channel=stable` mode. It does not use a browser extension.
 
-```text
-~/Library/Application Support/OpenCodeControl/chrome-beta
-```
+Enable Chrome's built-in remote debugging once:
 
-The launcher starts Chrome Beta with `--remote-debugging-port=0`, then discovers the assigned loopback endpoint exclusively through that profile's `DevToolsActivePort` file. Before reuse it validates the port, browser WebSocket path, `/json/version` response, and exact endpoint ownership. It never scans for or adopts an unrelated Chrome debugging endpoint, deletes profile locks, or silently selects another profile.
+1. Open `chrome://inspect/#remote-debugging` in normal Chrome and enable remote debugging.
+2. Restart OpenCode so the browser MCP reconnects.
+3. Call `list_pages` on `controlmac-browser` to trigger Chrome's connection prompt.
+4. Accept the prompt, then call `list_pages` again and select the intended page before any browser action.
 
-The first launch creates a separate browser profile. Sign in there manually when a workflow needs an authenticated session. One active controller can own this dedicated profile at a time.
-
-An explicit `CONTROLMAC_CDP_URL` selects **connect-only** mode. The URL must identify an already-running CDP endpoint; ControlMac never launches a local browser in this mode. The old split CDP host and port settings are unsupported and produce a migration error.
-
-Safe checks:
-
-```bash
-npm run chrome:check
-npm run doctor
-npm run doctor -- --json
-npm run doctor -- --logs
-```
-
-`chrome:check` reports dedicated-profile or external-URL mode, profile ownership, the resolved endpoint, and any blocker. It does not launch Chrome. `chrome:ensure` may launch or reuse the dedicated Beta profile but does not start the MCP server.
-
-`doctor --logs` includes local debugging output. Redaction is best effort: review its output before copying or sharing it.
-
-### Launcher overrides
-
-| Variable | Purpose |
-|---|---|
-| `CONTROLMAC_CHROME_PATH` | Chrome Beta executable |
-| `CONTROLMAC_CHROME_USER_DATA_DIR` | Dedicated profile directory |
-| `CONTROLMAC_CDP_URL` | Existing CDP endpoint; connect-only, never launches Chrome |
-| `CONTROLMAC_CHROME_MCP_PATH` | Chrome DevTools MCP executable |
-| `CONTROLMAC_CHROME_MCP_LOG_PATH` | Chrome DevTools MCP log file |
-| `CONTROLMAC_STARTUP_TIMEOUT_MS` | Browser readiness timeout |
-| `CONTROLMAC_POLL_INTERVAL_MS` | Readiness polling interval |
-
-## Existing Chrome stable profile
-
-Chrome 144+ can expose its existing stable default profile through a built-in local consent flow:
-
-1. In the intended stable Chrome profile, open `chrome://inspect/#remote-debugging` and enable remote debugging.
-2. Restart OpenCode, then accept Chrome's remote-debugging prompt.
-3. Call `list_pages` on `controlmac-stable-browser`.
-4. Continue only if `list_pages` returns the intended pages.
-
-Auto-connect does not prove which profile was selected. If several stable profiles are active, Chrome may expose its default profile. Never act when `list_pages` shows the wrong pages; use the dedicated Chrome Beta profile instead.
+Always begin browser work with `list_pages`. If it does not return the intended pages, stop and fix the Chrome connection instead of acting through native Chromium controls.
 
 Use Chrome DevTools MCP for page snapshots, clicks, forms, uploads, waits, and screenshots. Use native Peekaboo only for the omnibox, menus, permission prompts, downloads, and other macOS browser chrome.
+
+`npm run doctor` reports whether normal Chrome remote debugging is reachable and gives setup instructions when it is not. `doctor --logs` includes local debugging output; redaction is best effort, so review it before copying or sharing it.
 
 ## Verify the installation
 
@@ -129,9 +92,9 @@ opencode mcp list
 
 After restarting OpenCode:
 
-- confirm all four `controlmac-*` MCP servers enumerate tools;
+- confirm all three `controlmac-*` MCP servers enumerate tools;
 - run a native `see` call and confirm it returns AX elements plus a snapshot ID;
-- call `list_pages` on the chosen browser MCP and verify the expected profile and pages;
+- call `list_pages` on `controlmac-browser` and verify the expected pages;
 - use a harmless fixture or temporary document for the first action test.
 
 `npm test` is deterministic. Live suites open visible applications and run only when explicitly enabled:
@@ -146,7 +109,7 @@ CONTROLMAC_RUN_WORKFLOW_SMOKE=1 npm run test:workflow
 
 ## Operating rules
 
-- Use `controlmac-browser` for the dedicated Beta profile and `controlmac-stable-browser` only after verifying `list_pages`.
+- Before browser work, call `list_pages` on `controlmac-browser` and select the intended page.
 - Use native Peekaboo for native apps, browser chrome, and macOS dialogs.
 - Pass exact numeric PID plus window ID to `controlmac_window_focus`; never target that mutation by application name.
 - Treat Accessibility element IDs, browser UIDs, snapshots, and coordinates as snapshot-scoped.
@@ -158,15 +121,14 @@ CONTROLMAC_RUN_WORKFLOW_SMOKE=1 npm run test:workflow
 
 - Foreground fallbacks share the real keyboard and pointer and can be disrupted by concurrent user input.
 - Permission changes usually require restarting Peekaboo and OpenCode.
-- Only one controller should use the dedicated Chrome Beta profile at a time; an existing profile lock is reported, never removed.
-- Stable Chrome auto-connect can select the default rather than the intended non-default profile.
+- Chrome auto-connect can expose a different active Chrome session than expected; verify `list_pages` before every browser workflow.
 - Peekaboo 4.2.2 cannot generically focus an attached TextEdit Save As sheet. Same-directory saves recover through background dialog actions; selecting an arbitrary new directory in that sheet remains unsupported.
 - Peekaboo 4.2.2 is unreliable for native AX mutation or exact-window capture of Chromium page content. Use the corresponding browser MCP instead.
 
 ## Manual uninstall
 
 1. Quit OpenCode.
-2. Remove the four `controlmac-*` entries from `~/.config/opencode/opencode.jsonc`; leave unrelated MCP entries untouched.
+2. Remove the three `controlmac-*` entries from `~/.config/opencode/opencode.jsonc`; leave unrelated MCP entries untouched.
 3. Confirm the following paths are ControlMac symlinks, then unlink them:
 
    ```bash
@@ -176,7 +138,7 @@ CONTROLMAC_RUN_WORKFLOW_SMOKE=1 npm run test:workflow
    unlink "$HOME/.config/opencode/tools/controlmac.ts"
    ```
 
-4. If no longer needed, move the dedicated profile at `~/Library/Application Support/OpenCodeControl/chrome-beta` and ControlMac logs in `~/Library/Logs/OpenCodeControl` to the Trash.
+4. Upgrading from an earlier ControlMac release does not delete its old Chrome Beta profile or logs. If no longer needed, manually move `~/Library/Application Support/OpenCodeControl/chrome-beta` and `~/Library/Logs/OpenCodeControl` to the Trash.
 
 Installer-created `opencode.jsonc.bak-*` files are retained for recovery and are not removed automatically.
 

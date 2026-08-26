@@ -7,7 +7,12 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { parse } from "jsonc-parser";
 
-import { buildInstallPlan, desiredMcpEntries, updateConfigText } from "../scripts/install.mjs";
+import {
+  buildInstallPlan,
+  desiredMcpEntries,
+  install,
+  updateConfigText,
+} from "../scripts/install.mjs";
 import {
   app,
   dialog_file,
@@ -32,24 +37,34 @@ test("runtime dependencies and engine are exactly pinned", async () => {
   assert.equal(packageJson.devDependencies["jsonc-parser"], "3.3.1");
 });
 
-test("installer adds only ControlMac MCP entries and preserves unrelated JSONC", () => {
+test("installer migrates four ControlMac MCP entries to three and preserves unrelated JSONC", () => {
+  const legacyBrowserName = ["controlmac", "stable", "browser"].join("-");
   const existing = `{
   // This comment and the unrelated integrations must survive.
   "mcp": {
     "caido-tahr": { "type": "local", "command": ["caido-tahr"] },
     "playwright": { "type": "remote", "url": "http://127.0.0.1:3000/mcp" },
+    "controlmac-native": { "type": "local", "command": ["old-native"] },
+    "controlmac-capture": { "type": "local", "command": ["old-capture"] },
+    "controlmac-browser": { "type": "local", "command": ["old-browser"] },
+    "${legacyBrowserName}": { "type": "local", "command": ["old-stable-browser"] },
   },
   "permission": "allow",
+  "provider": { "apiKey": "{env:EXISTING_API_KEY}" },
 }
 `;
   const paths = {
     peekabooPath: "/fixture/repo/node_modules/.bin/peekaboo",
     peekabooBridgeSocket: "/fixture/home/Library/Application Support/Peekaboo/bridge.sock",
     chromeMcpPath: "/fixture/repo/node_modules/.bin/chrome-devtools-mcp",
-    stableChromeMcpLogPath: "/fixture/home/Library/Logs/OpenCodeControl/chrome-devtools-stable.log",
-    launcherPath: "/fixture/repo/scripts/chrome-beta-mcp.mjs",
+    chromeMcpLogPath: "/fixture/home/Library/Logs/OpenCodeControl/chrome-devtools.log",
   };
   const entries = desiredMcpEntries(paths, "/fixture/node");
+  assert.deepEqual(Object.keys(entries), [
+    "controlmac-native",
+    "controlmac-capture",
+    "controlmac-browser",
+  ]);
   assert.deepEqual(entries["controlmac-native"].command, [
     paths.peekabooPath,
     "mcp",
@@ -61,7 +76,7 @@ test("installer adds only ControlMac MCP entries and preserves unrelated JSONC",
     "--bridge-socket",
     paths.peekabooBridgeSocket,
   ]);
-  assert.deepEqual(entries["controlmac-stable-browser"], {
+  assert.deepEqual(entries["controlmac-browser"], {
     type: "local",
     command: [
       "/fixture/node",
@@ -74,7 +89,7 @@ test("installer adds only ControlMac MCP entries and preserves unrelated JSONC",
       "--no-category-emulation",
       "--allow-unrestricted-paths",
       "--no-usage-statistics",
-      `--log-file=${paths.stableChromeMcpLogPath}`,
+      `--log-file=${paths.chromeMcpLogPath}`,
     ],
     enabled: true,
     timeout: 30_000,
@@ -87,16 +102,28 @@ test("installer adds only ControlMac MCP entries and preserves unrelated JSONC",
   assert.deepEqual(errors, []);
   assert.match(twice, /This comment and the unrelated integrations must survive/);
   assert.equal(parsed.permission, "allow");
+  assert.deepEqual(parsed.provider, { apiKey: "{env:EXISTING_API_KEY}" });
   assert.deepEqual(parsed.mcp["caido-tahr"], { type: "local", command: ["caido-tahr"] });
   assert.deepEqual(parsed.mcp.playwright, { type: "remote", url: "http://127.0.0.1:3000/mcp" });
   assert.deepEqual(parsed.mcp["controlmac-native"], entries["controlmac-native"]);
   assert.deepEqual(parsed.mcp["controlmac-capture"], entries["controlmac-capture"]);
   assert.deepEqual(parsed.mcp["controlmac-browser"], entries["controlmac-browser"]);
-  assert.deepEqual(
-    parsed.mcp["controlmac-stable-browser"],
-    entries["controlmac-stable-browser"],
-  );
+  assert.equal(Object.hasOwn(parsed.mcp, legacyBrowserName), false);
   assert.equal(twice, once, "reapplying the same MCP entries must be idempotent");
+});
+
+test("installer dry-run reports exactly the three current ControlMac MCP names", async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "controlmac-dry-run-contract-"));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  const result = await install(
+    { dryRun: true, configPath: path.join(temporaryRoot, "opencode.jsonc") },
+    { HOME: temporaryRoot },
+  );
+  assert.deepEqual(result.mcpEntries, [
+    "controlmac-native",
+    "controlmac-capture",
+    "controlmac-browser",
+  ]);
 });
 
 test("installer refuses to replace a symlink-managed OpenCode config", async (t) => {
@@ -114,7 +141,7 @@ test("installer refuses to replace a symlink-managed OpenCode config", async (t)
   assert.equal(await readFile(managedConfig, "utf8"), "{}\n");
 });
 
-test("reference config advertises the four distinct local MCP servers", async () => {
+test("reference config advertises the three distinct local MCP servers", async () => {
   const fragmentText = await readFile(path.join(repoRoot, "config", "opencode.fragment.jsonc"), "utf8");
   const errors = [];
   const fragment = parse(fragmentText, errors, { allowTrailingComma: true });
@@ -123,7 +150,6 @@ test("reference config advertises the four distinct local MCP servers", async ()
     "controlmac-browser",
     "controlmac-capture",
     "controlmac-native",
-    "controlmac-stable-browser",
   ]);
   assert.deepEqual(fragment.mcp["controlmac-native"].command.slice(1), [
     "mcp",
@@ -134,23 +160,22 @@ test("reference config advertises the four distinct local MCP servers", async ()
     "--bridge-socket",
     "<home>/Library/Application Support/Peekaboo/bridge.sock",
   ]);
-  assert.deepEqual(fragment.mcp["controlmac-stable-browser"].command.slice(2, 4), [
+  assert.deepEqual(fragment.mcp["controlmac-browser"].command.slice(2, 4), [
     "--auto-connect",
     "--channel=stable",
   ]);
   assert.match(
-    fragment.mcp["controlmac-stable-browser"].command[1],
+    fragment.mcp["controlmac-browser"].command[1],
     /node_modules\/\.bin\/chrome-devtools-mcp$/,
   );
   assert.match(fragment.mcp["controlmac-native"].command[0], /node_modules\/\.bin\/peekaboo$/);
   assert.match(fragment.mcp["controlmac-capture"].command[0], /node_modules\/\.bin\/peekaboo$/);
-  assert.match(fragment.mcp["controlmac-browser"].command[1], /scripts\/chrome-beta-mcp\.mjs$/);
   assert.equal(fragment.mcp["controlmac-browser"].command[0], "<node-path>");
   assert.match(fragment.mcp["controlmac-native"].command[0], /^<repo-root>\//);
   assert.match(fragment.mcp["controlmac-capture"].command[0], /^<repo-root>\//);
-  assert.match(fragment.mcp["controlmac-stable-browser"].command[1], /^<repo-root>\//);
+  assert.match(fragment.mcp["controlmac-browser"].command[1], /^<repo-root>\//);
   assert.match(
-    fragment.mcp["controlmac-stable-browser"].command.at(-1),
+    fragment.mcp["controlmac-browser"].command.at(-1),
     /^--log-file=<home>\//,
   );
   assert.doesNotMatch(fragmentText, /\/Users\//);
@@ -174,10 +199,18 @@ test("public sources contain no private-machine or retired fixed-endpoint marker
     String(9_000 + 223),
     ["CONTROLMAC", "CDP", "HOST"].join("_"),
     ["CONTROLMAC", "CDP", "PORT"].join("_"),
+    ["CONTROLMAC", "CDP", "URL"].join("_"),
+    ["scripts", "chrome-beta-mcp.mjs"].join("/"),
   ];
 
   for (const relativePath of sourcePaths) {
-    const contents = await readFile(path.join(repoRoot, relativePath), "utf8");
+    const contents = await readFile(path.join(repoRoot, relativePath), "utf8").catch(
+      (error) => {
+        if (error?.code === "ENOENT") return null;
+        throw error;
+      },
+    );
+    if (contents === null) continue;
     for (const token of forbiddenTokens) {
       assert.equal(
         contents.includes(token),
@@ -185,6 +218,43 @@ test("public sources contain no private-machine or retired fixed-endpoint marker
         `${relativePath} contains forbidden public-release marker ${token}`,
       );
     }
+  }
+});
+
+test("public interfaces contain no dedicated-browser routing", async () => {
+  const retiredMcpName = ["controlmac", "stable", "browser"].join("-");
+  const retiredLauncherName = ["chrome", "beta", "mcp.mjs"].join("-");
+  const retiredConnectionMode = ["dedicated", "profile"].join("-");
+  const launcherPath = path.join(repoRoot, "scripts", retiredLauncherName);
+  const launcherTestPath = path.join(
+    repoRoot,
+    "tests",
+    ["launcher", "test.mjs"].join("."),
+  );
+  for (const retiredPath of [launcherPath, launcherTestPath]) {
+    await assert.rejects(readFile(retiredPath, "utf8"), { code: "ENOENT" });
+  }
+
+  const packageJson = await loadPackageJson();
+  assert.equal(Object.hasOwn(packageJson.scripts, "chrome:check"), false);
+  assert.equal(Object.hasOwn(packageJson.scripts, "chrome:ensure"), false);
+  assert.equal(Object.hasOwn(packageJson.scripts, "test:launcher"), false);
+  assert.doesNotMatch(packageJson.scripts.test, /launcher/);
+
+  for (const relativePath of [
+    "README.md",
+    "config/opencode.fragment.jsonc",
+    "opencode/skills/control-mac/SKILL.md",
+  ]) {
+    const contents = await readFile(path.join(repoRoot, relativePath), "utf8");
+    assert.equal(contents.includes(retiredMcpName), false, relativePath);
+    assert.equal(contents.includes(retiredLauncherName), false, relativePath);
+    assert.equal(contents.includes(retiredConnectionMode), false, relativePath);
+    assert.doesNotMatch(
+      contents,
+      /DevToolsActivePort[^\n]*ownership|ownership[^\n]*DevToolsActivePort/i,
+      relativePath,
+    );
   }
 });
 
@@ -275,7 +345,8 @@ test("control-mac skill defines routing, snapshot freshness, verification, and b
   const skill = await readFile(path.join(repoRoot, "opencode", "skills", "control-mac", "SKILL.md"), "utf8");
   assert.match(skill, /^---\nname: control-mac\n/m);
   assert.match(skill, /controlmac-browser/);
-  assert.match(skill, /controlmac-stable-browser/);
+  assert.doesNotMatch(skill, /controlmac-stable-browser/);
+  assert.match(skill, /list_pages/);
   assert.match(skill, /controlmac-native/);
   assert.match(skill, /controlmac-capture/);
   assert.match(skill, /format: "data"/);

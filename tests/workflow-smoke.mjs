@@ -8,11 +8,11 @@ import {
   app as foregroundApp,
   window_focus as foregroundWindowFocus,
 } from "../opencode/tools/controlmac.ts";
-import { getLauncherConfig, inspectLauncherState } from "../scripts/chrome-beta-mcp.mjs";
 import { startFixtureServer } from "./browser-fixture/server.mjs";
 import {
   assertToolSucceeded,
-  chromeLauncherPath,
+  chromeMcpArgs,
+  chromeMcpPath,
   connectMcp,
   customToolContext,
   gateReason,
@@ -98,7 +98,7 @@ test(
       return;
     }
     if (!(await requireFile(t, peekabooPath, "pinned Peekaboo CLI"))) return;
-    if (!(await requireFile(t, chromeLauncherPath, "Chrome Beta MCP launcher"))) return;
+    if (!(await requireFile(t, chromeMcpPath, "Chrome DevTools MCP"))) return;
 
     const nativePermissions = await readNativePeekabooPermissions();
     const capturePermissions = await readCapturePeekabooPermissions();
@@ -116,13 +116,6 @@ test(
       t.skip(`missing required macOS permission(s): ${missing.join(", ")}`);
       return;
     }
-    const launcherConfig = getLauncherConfig();
-    const launcherState = await inspectLauncherState(launcherConfig);
-    if (launcherState.blocker) {
-      t.skip(`Chrome Beta prerequisite blocked: ${launcherState.blocker}`);
-      return;
-    }
-
     const fixture = await startFixtureServer();
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "controlmac-workflow-"));
     const marker = `workflow-${Date.now()}`;
@@ -243,18 +236,27 @@ test(
     const nativeScreenshot = await readFile(nativeScreenshotPath);
     assert.equal(nativeScreenshot.subarray(1, 4).toString("ascii"), "PNG");
 
-    browserMcp = await connectMcp({ command: process.execPath, args: [chromeLauncherPath], timeoutMs: 30_000 });
+    browserMcp = await connectMcp({
+      command: process.execPath,
+      args: [chromeMcpPath, ...chromeMcpArgs],
+      timeoutMs: 30_000,
+    });
     const browserTools = (await browserMcp.client.listTools()).tools;
-    for (const name of ["new_page", "take_snapshot", "upload_file", "wait_for", "take_screenshot"]) {
+    for (const name of ["list_pages", "new_page", "take_snapshot", "upload_file", "wait_for", "take_screenshot"]) {
       toolByName(browserTools, name);
     }
+
+    assertToolSucceeded(
+      await browserMcp.client.callTool({ name: "list_pages", arguments: {} }),
+      "verify the normal Chrome connection before cross-application browser work",
+    );
 
     const opened = assertToolSucceeded(
       await browserMcp.client.callTool({
         name: "new_page",
         arguments: { url: fixture.baseUrl, timeout: 15_000 },
       }),
-      "open workflow fixture in Chrome Beta",
+      "open workflow fixture in normal Chrome",
     );
     pageId = selectedPageId(resultText(opened));
     const initialSnapshot = resultText(

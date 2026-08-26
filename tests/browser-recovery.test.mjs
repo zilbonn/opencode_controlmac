@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getLauncherConfig, inspectLauncherState } from "../scripts/chrome-beta-mcp.mjs";
 import { startFixtureServer } from "./browser-fixture/server.mjs";
 import {
   assertToolSucceeded,
-  chromeLauncherPath,
+  chromeMcpArgs,
+  chromeMcpPath,
   connectMcp,
   gateReason,
+  requireFile,
   resultText,
   selectedPageId,
   snapshotUid,
@@ -17,15 +18,19 @@ test(
   "browser control recovers by taking a fresh snapshot after a rejected UID",
   { skip: gateReason("CONTROLMAC_RUN_BROWSER_RECOVERY"), timeout: 60_000 },
   async (t) => {
-    const launcherState = await inspectLauncherState(getLauncherConfig());
-    if (launcherState.blocker) {
-      t.skip(`Chrome Beta prerequisite blocked: ${launcherState.blocker}`);
+    if (process.platform !== "darwin") {
+      t.skip("the configured normal Chrome connection is macOS-specific");
       return;
     }
+    if (!(await requireFile(t, chromeMcpPath, "Chrome DevTools MCP"))) return;
 
     const fixture = await startFixtureServer();
     t.after(fixture.close);
-    const mcp = await connectMcp({ command: process.execPath, args: [chromeLauncherPath], timeoutMs: 30_000 });
+    const mcp = await connectMcp({
+      command: process.execPath,
+      args: [chromeMcpPath, ...chromeMcpArgs],
+      timeoutMs: 30_000,
+    });
     let pageId;
     t.after(async () => {
       if (pageId !== undefined) {
@@ -33,6 +38,11 @@ test(
       }
       await mcp.close();
     });
+
+    assertToolSucceeded(
+      await mcp.client.callTool({ name: "list_pages", arguments: {} }),
+      "verify the normal Chrome connection before recovery work",
+    );
 
     const opened = assertToolSucceeded(
       await mcp.client.callTool({ name: "new_page", arguments: { url: fixture.baseUrl, timeout: 15_000 } }),
